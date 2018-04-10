@@ -12,8 +12,15 @@ const handlers = {
         this.emit('SearchRestaurant');
     },
     'SearchRestaurant': function () {
-        this.response.speak('Nah mate fight me');
-        this.emit(':responseReady');
+        //  Make sure user says a restaurant
+        const restaurant = this.event.request.intent.slots.restaurant.value;
+        if (!restaurant) {
+            this.emit(':delegate', this.event.request.intent);
+        } else {
+            //  We're good to go
+            this.response.speak(`Nah mate look up ${restaurant} yourself`);
+            this.emit(':responseReady');
+        }
     },
     'AMAZON.HelpIntent': function () {
         this.response.speak('You can say something like look up burger king on yelp').listen('you wot mate?');
