@@ -1,8 +1,14 @@
+const fs = require('fs');
 const Alexa = require('alexa-sdk');
+const https = require('https');
+
+const YelpClient = require('./yelp-client');
 
 exports.handler = async (event, context) => {
     const alexa = Alexa.handler(event, context);
-    alexa.appId = 'amzn1.ask.skill.2282e711-13c1-4712-bd89-e79554d6e908';
+    const data = fs.readFileSync('./secrets.json', 'utf8');
+
+    alexa.appId = JSON.parse(data).alexaAppId;
     alexa.registerHandlers(handlers);
     alexa.execute();
 };
@@ -18,8 +24,12 @@ const handlers = {
             this.emit(':delegate', this.event.request.intent);
         } else {
             //  We're good to go
-            this.response.speak(`Nah mate look up ${restaurant} yourself`);
-            this.emit(':responseReady');
+            YelpClient.yelpSearch(restaurant)
+                .then((json) => {
+                    this.response.speak(`I found ${json.total} businesses`);
+                    this.emit(':responseReady');
+                })
+                .catch(e => console.error(e));
         }
     },
     'AMAZON.HelpIntent': function () {
