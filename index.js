@@ -4,7 +4,7 @@ const https = require('https');
 
 const YelpClient = require('./yelp-client');
 
-exports.handler = async (event, context) => {
+exports.handler = (event, context) => {
     const alexa = Alexa.handler(event, context);
     const data = fs.readFileSync('./secrets.json', 'utf8');
 
@@ -12,6 +12,15 @@ exports.handler = async (event, context) => {
     alexa.registerHandlers(handlers);
     alexa.execute();
 };
+
+function buildLocationString (location) {
+    return `${location.address1} in ${location.city}`;
+}
+
+function metersToMiles (meters) {
+    const miles = meters * 0.000621371;
+    return Math.round(miles * 10) / 10;
+}
 
 const handlers = {
     'LaunchRequest': function () {
@@ -26,7 +35,11 @@ const handlers = {
             //  We're good to go
             YelpClient.yelpSearch(restaurant)
                 .then((json) => {
-                    this.response.speak(`I found ${json.total} businesses`);
+                    const business = json.businesses[0];
+                    this.response.speak(
+                        `Your top result is ${business.name} located at ${buildLocationString(business.location)}. `
+                        + `It is approximately ${metersToMiles(business.distance)} miles away.`
+                    );
                     this.emit(':responseReady');
                 })
                 .catch(e => console.error(e));
