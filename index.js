@@ -1,8 +1,8 @@
 const fs = require('fs');
 const Alexa = require('alexa-sdk');
-const https = require('https');
 
-const YelpClient = require('./yelp-client');
+const YelpClient = require('./http/yelp-client');
+const AWSClient = require('./http/aws-client');
 
 exports.handler = (event, context) => {
     const alexa = Alexa.handler(event, context);
@@ -22,39 +22,107 @@ function metersToMiles (meters) {
     return Math.round(miles * 10) / 10;
 }
 
+const customHandlers = {
+    searchRestaurant: 'SearchRestaurant',
+    requestPermission: 'RequestPermission'
+};
+
 const handlers = {
     'LaunchRequest': function () {
-        this.emit('SearchRestaurant');
+        this.emit(customHandlers.searchRestaurant);
     },
-    'SearchRestaurant': function () {
+
+    [customHandlers.searchRestaurant]: function () {
         //  Make sure user says a restaurant
         const restaurant = this.event.request.intent.slots.restaurant.value;
         if (!restaurant) {
             this.emit(':delegate', this.event.request.intent);
         } else {
-            //  We're good to go
-            YelpClient.yelpSearch(restaurant)
-                .then((json) => {
-                    const business = json.businesses[0];
-                    this.response.speak(
-                        `Your top result is ${business.name} located at ${buildLocationString(business.location)}. `
-                        + `It is approximately ${metersToMiles(business.distance)} miles away.`
-                    );
-                    this.emit(':responseReady');
+            //  Good to go, get user's location
+            const awsClient = new AWSClient(
+                this.event.context.System.apiAccessToken,
+                this.event.context.System.device.deviceId,
+                this.event.context.System.apiEndpoint
+            );
+            awsClient.getDeviceAddress()
+                .then((response) => {
+                    response = {
+                        stateOrRegion: 'CA',
+                        city: 'Los Angeles',
+                        countryCode: 'US',
+                        postalCode: '90015',
+                        addressLine1: '1355 South Flower St'
+                    };
+                    if (response.type && response.type.toLowerCase() === 'forbidden') {
+                        //  Need to get permission to access location
+                        this.emit(customHandlers.requestPermission);
+                    } else {
+                        return response;
+                    }
                 })
-                .catch(e => console.error(e));
+                .then((address) => {
+                    const location = `${address.addressLine1}, ${address.city}, `
+                        + `${address.stateOrRegion || address.postalCode}`;
+                    YelpClient.yelpSearch(restaurant, location)
+                        .then((data) => {
+                            const business = data.businesses[0];
+                            this.response.speak(
+                                `Your top result is ${business.name} located at `
+                                + `${buildLocationString(business.location)}. `
+                                + `It is approximately ${metersToMiles(business.distance)} miles away.`
+                            );
+                            this.emit(':responseReady');
+                        })
+                        .catch(e => console.error(e));
+                });
         }
     },
-    'AMAZON.HelpIntent': function () {
-        this.response.speak('You can say something like look up burger king on yelp').listen('you wot mate?');
+
+    [customHandlers.requestPermission]: function () {
+        this.handler.response = buildAlexaResponse({
+            card: {
+                type: 'AskForPermissionsConsent',
+                permissions: [ 'read::alexa:device:all:address' ]
+            },
+            shouldEndSession: false
+        });
         this.emit(':responseReady');
     },
+
+    'AMAZON.HelpIntent': function () {
+        this.response.speak('You can say something like: look up burger king using yelp');
+        this.emit(':responseReady');
+    },
+
     'AMAZON.CancelIntent': function () {
         this.response.speak('Damn okay be like that');
         this.emit(':responseReady');
     },
+
     'AMAZON.StopIntent': function () {
         this.response.speak('Damn okay be like that');
         this.emit(':responseReady');
     }
+};
+
+function buildAlexaResponse (settings) {
+    const alexaResponse = {
+        body: {
+            version: settings.version || '1.0',
+            sessionAttributes: settings.sessionAttributes || {},
+            response: {
+                shouldEndSession: false
+            }
+        }
+    };
+
+    if (settings.card) {
+        alexaResponse.body.response.card = settings.card;
+    }
+
+    if (settings.shouldEndSession) {
+        alexaResponse.body.response.shouldEndSession = settings.shouldEndSession;
+    }
+
+    return alexaResponse;
 }

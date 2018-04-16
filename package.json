@@ -4,12 +4,17 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node zip/zip.js"
+    "start": "eslint ./**/*.js && node zip/zip.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
     "alexa-sdk": "^1.0.25",
     "isomorphic-fetch": "^2.2.1"
+  },
+  "devDependencies": {
+    "babel-eslint": "^8.2.3",
+    "eslint": "^4.19.1",
+    "eslint-plugin-babel": "^5.0.0"
   }
 }

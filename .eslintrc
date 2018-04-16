@@ -1,0 +1,52 @@
+{
+    "rules": {
+        "brace-style": [
+            "error",
+            "1tbs"
+        ],
+        "space-before-function-paren": [
+            "error",
+            "always"
+        ],
+        "space-before-blocks": [
+            "error",
+            "always"
+        ],
+        "eqeqeq": [
+            "error",
+            "always"
+        ],
+        "no-unused-vars": [
+            "error",
+            "all"
+        ],
+        "max-len": [
+            "error",
+            { "code": 120 }
+        ],
+        "semi": [
+            "error",
+            "always"
+        ],
+        "eol-last": [
+            "error",
+            "always"
+        ],
+        "no-console": 0,
+        "babel/semi": [
+            "error",
+            "always"
+        ]
+    },
+    "plugins": [
+        "babel"
+    ],
+    "parser": "babel-eslint",
+    "env": {
+        "node": true,
+        "es6": true
+    },
+    "extends": [
+        "eslint:recommended"
+    ]
+}

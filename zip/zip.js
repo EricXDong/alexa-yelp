@@ -6,9 +6,7 @@ const ProgressBar = require('progress');
 const outputDir = 'output.zip';
 try {
     fs.unlinkSync(outputDir);
-} catch (e) {}
-
-const nodeModules = nodeDir.files('node_modules', { sync: true });
+} catch (e) { /* Don't care if the file isn't there to be deleted */ }
 
 const output = fs.createWriteStream(outputDir);
 var archive = archiver('zip', {
@@ -34,11 +32,14 @@ archive.on('error', (err) => {
 archive.pipe(output);
 
 archive.file('index.js');
-archive.file('yelp-client.js');
 archive.file('secrets.json');
+archive.directory('http');
 archive.directory('node_modules/');
 
-const numFiles = nodeModules.length + 3;
+const numFiles =
+    nodeDir.files('node_modules', { sync: true }).length
+    + nodeDir.files('http', { sync: true }).length
+    + 3;
 const progressBar = new ProgressBar('Archiving :current/:total :bar', {
     complete: '#',
     incomplete: '-',
