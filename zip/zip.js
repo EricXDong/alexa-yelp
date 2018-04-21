@@ -32,6 +32,7 @@ archive.on('error', (err) => {
 archive.pipe(output);
 
 archive.file('index.js');
+archive.file('logger.js');
 archive.file('secrets.json');
 archive.directory('http');
 archive.directory('node_modules/');
