@@ -7,9 +7,12 @@ const Logger = require('./logger');
 
 const logger = new Logger('Alexa-Yelp');
 
-let validateAppId = (correctId, event) => new Promise((resolve, reject) => {
+const secrets = JSON.parse(fs.readFileSync('./secrets.json', 'utf8'));
+
+//  Correct ID is bound in the main handler
+let validateAppId = (event) => new Promise((resolve, reject) => {
     const id = event.session.application.applicationId;
-    if (correctId === id) {
+    if (secrets.alexaAppId === id) {
         resolve(id);
     } else {
         reject(id);
@@ -18,10 +21,8 @@ let validateAppId = (correctId, event) => new Promise((resolve, reject) => {
 
 exports.handler = (event, context) => {
     const alexa = Alexa.handler(event, context);
-    const data = fs.readFileSync('./secrets.json', 'utf8');
 
-    alexa.appId = JSON.parse(data).alexaAppId;
-    validateAppId = validateAppId.bind(null, alexa.appId);
+    alexa.appId = secrets.alexaAppId;
     alexa.registerHandlers(handlers);
     alexa.execute();
 };
@@ -56,6 +57,7 @@ const handlers = {
         validateAppId(this.event)
             .then(() => {
                 //  Make sure user says a restaurant
+                console.log(JSON.stringify(this.event.request, null, 2));
                 const restaurant = this.event.request.intent.slots.restaurant.value;
                 if (!restaurant) {
                     logger.logJsonMessage({

@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "eslint ./**/*.js && node zip/zip.js"
+    "start": "eslint *.js ./**/*.js && node zip/zip.js",
+    "lint": "eslint *.js ./**/*.js"
   },
   "author": "",
   "license": "ISC",
