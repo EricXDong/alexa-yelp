@@ -9,7 +9,6 @@ const logger = new Logger('Alexa-Yelp');
 
 const secrets = JSON.parse(fs.readFileSync('./secrets.json', 'utf8'));
 
-//  Correct ID is bound in the main handler
 let validateAppId = (event) => new Promise((resolve, reject) => {
     const id = event.session.application.applicationId;
     if (secrets.alexaAppId === id) {
@@ -21,7 +20,6 @@ let validateAppId = (event) => new Promise((resolve, reject) => {
 
 exports.handler = (event, context) => {
     const alexa = Alexa.handler(event, context);
-
     alexa.appId = secrets.alexaAppId;
     alexa.registerHandlers(handlers);
     alexa.execute();
@@ -45,7 +43,10 @@ const customHandlers = {
 const handlers = {
     'LaunchRequest': function () {
         validateAppId(this.event)
-            .then(() => this.emit(customHandlers.searchRestaurant))
+            .then(() => {
+                this.response.speak('Welcome to Yelp for Alexa. Just let me know what you would like to search for.');
+                this.emit(':responseReady');
+            })
             .catch((id) => this.emit(
                 customHandlers.error,
                 'I was unable to validate your application ID',
@@ -57,7 +58,6 @@ const handlers = {
         validateAppId(this.event)
             .then(() => {
                 //  Make sure user says a restaurant
-                console.log(JSON.stringify(this.event.request, null, 2));
                 const restaurant = this.event.request.intent.slots.restaurant.value;
                 if (!restaurant) {
                     logger.logJsonMessage({
@@ -103,6 +103,7 @@ const handlers = {
                                 location
                             });
 
+                            //  Search and return results
                             YelpClient.yelpSearch(restaurant, location)
                                 .then((data) => {
                                     const business = data.businesses[0];
@@ -142,7 +143,7 @@ const handlers = {
     [customHandlers.error]: function (message, e) {
         logger.logError(`${e.code}: ${e.message}`);
         this.response.speak(`Sorry, something went wrong. ${message}`);
-
+        this.emit(':responseReady');
     },
 
     'AMAZON.HelpIntent': function () {
@@ -151,12 +152,12 @@ const handlers = {
     },
 
     'AMAZON.CancelIntent': function () {
-        this.response.speak('Damn okay be like that');
+        this.response.speak('Goodbye');
         this.emit(':responseReady');
     },
 
     'AMAZON.StopIntent': function () {
-        this.response.speak('Damn okay be like that');
+        this.response.speak('Goodbye');
         this.emit(':responseReady');
     }
 };
