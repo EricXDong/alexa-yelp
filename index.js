@@ -100,16 +100,16 @@ const handlers = {
                     return;
                 }
 
-                const location = `${json.addressLine1}, ${json.city}, `
+                const userLocation = `${json.addressLine1}, ${json.city}, `
                     + `${json.stateOrRegion || json.postalCode}`;
                 logger.logJsonMessage({
                     userId: this.event.session.user.userId,
                     query: restaurant,
-                    location
+                    userLocation
                 });
 
                 //  Search and return results
-                return YelpClient.yelpSearch(restaurant, location).then((data) => {
+                return YelpClient.yelpSearch(restaurant, userLocation).then((data) => {
                     //  Check for no results
                     if (data.businesses.length === 0) {
                         this.response.speak(`Sorry, I couldn't find any results for ${restaurant}.`);
