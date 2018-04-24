@@ -29,6 +29,10 @@ function buildLocationString (location) {
     return `${location.address1}, ${location.city}`;
 }
 
+function buildLocationSpeechString (location) {
+    return `${location.address1} in ${location.city}`;
+}
+
 function metersToMiles (meters) {
     const miles = meters * 0.000621371;
     return Math.round(miles * 10) / 10;
@@ -78,13 +82,13 @@ const handlers = {
                 this.event.context.System.apiEndpoint
             );
             return awsClient.getDeviceAddress().then((json) => {
-                json = {
-                    stateOrRegion: 'CA',
-                    city: 'Los Angeles',
-                    countryCode: 'US',
-                    postalCode: '90015',
-                    addressLine1: '1355 South Flower St'
-                };
+                // json = {
+                //     stateOrRegion: 'CA',
+                //     city: 'Los Angeles',
+                //     countryCode: 'US',
+                //     postalCode: '90015',
+                //     addressLine1: '1355 South Flower St'
+                // };
                 if (json.type && json.type.toLowerCase() === 'forbidden') {
                     //  Need to get permission to access location
                     logger.logJsonMessage({
@@ -113,14 +117,18 @@ const handlers = {
                         return;
                     }
 
+                    const topResult = data.businesses[0];
+                    const topResultSpeech = `Your top result is ${topResult.name}, `
+                        + `about ${metersToMiles(topResult.distance)} miles away at `
+                        + `${buildLocationSpeechString(topResult.location)}.`;
+
                     //  Build a card with top 5 results
-                    const topBusiness = data.businesses[0];
                     const card = {
                         type: 'Standard',
                         title: 'Yelp Results',
                         image: {
-                            smallImageUrl: topBusiness.image_url,
-                            largeImageUrl: topBusiness.image_url
+                            smallImageUrl: topResult.image_url,
+                            largeImageUrl: topResult.image_url
                         },
                         text: data.businesses
                             .slice(0, 5)
@@ -133,8 +141,13 @@ const handlers = {
                         card,
                         outputSpeech: {
                             type: 'SSML',
-                            ssml: `<speak> I've displayed your top 5 results on a card in your Alexa `
-                                + `app. </speak>`
+                            ssml: `<speak>
+                                <p> ${topResultSpeech}</p>
+                                <p>
+                                    I've displayed the rest of your results, including further details, on a card
+                                    in the Alexa App.
+                                </p>
+                            </speak>`
                         }
                     });
                     this.emit(':responseReady');
@@ -156,6 +169,11 @@ const handlers = {
             card: {
                 type: 'AskForPermissionsConsent',
                 permissions: [ 'read::alexa:device:all:address' ]
+            },
+            outputSpeech: {
+                type: 'SSML',
+                ssml: `<speak> I need to know your location in order to return relevant results. You can give `
+                    + `me permission in the Alexa App. </speak>`
             },
             shouldEndSession: false
         });
