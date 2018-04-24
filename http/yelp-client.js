@@ -22,7 +22,13 @@ function yelpSearch (query, location) {
     url += `&limit=4`;
 
     return yelpRequest(url)
-        .then(response => response.json());
+        .then(response => response.json())
+        .then((json) => {
+            if (json.error) {
+                throw json.error;
+            }
+            return json;
+        });
 }
 
 exports.yelpSearch = yelpSearch;

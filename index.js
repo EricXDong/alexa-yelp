@@ -26,12 +26,18 @@ exports.handler = (event, context) => {
 };
 
 function buildLocationString (location) {
-    return `${location.address1} in ${location.city}`;
+    return `${location.address1}, ${location.city}`;
 }
 
 function metersToMiles (meters) {
     const miles = meters * 0.000621371;
     return Math.round(miles * 10) / 10;
+}
+
+function buildBusinessCardText (business, listPosition) {
+    return `${listPosition}. ${business.name} (${metersToMiles(business.distance)} mi)\n`
+        + `[${business.rating}/5 stars] ${business.review_count} review${business.review_count > 1 ? 's' : ''}\n`
+        + `${buildLocationString(business.location)}\n`;
 }
 
 const customHandlers = {
@@ -42,91 +48,107 @@ const customHandlers = {
 
 const handlers = {
     'LaunchRequest': function () {
-        validateAppId(this.event)
-            .then(() => {
-                this.response.speak('Welcome to Yelp for Alexa. Just let me know what you would like to search for.');
-                this.emit(':responseReady');
-            })
-            .catch((id) => this.emit(
-                customHandlers.error,
-                'I was unable to validate your application ID',
-                { code: '401', message: `Invalid application ID: ${id}` }
-            ));
+        validateAppId(this.event).then(() => {
+            this.response.speak('Welcome to Yelp for Alexa. Just let me know what you would like to search for.');
+            this.emit(':responseReady');
+        }).catch((id) => this.emit(
+            customHandlers.error,
+            'I was unable to validate your application ID.',
+            { code: '401', message: `Invalid application ID: ${id}` }
+        ));
     },
 
     [customHandlers.searchRestaurant]: function () {
-        validateAppId(this.event)
-            .then(() => {
-                //  Make sure user says a restaurant
-                const restaurant = this.event.request.intent.slots.restaurant.value;
-                if (!restaurant) {
+        validateAppId(this.event).then(() => {
+            //  Make sure user says a restaurant
+            const restaurant = this.event.request.intent.slots.restaurant.value;
+            if (!restaurant) {
+                logger.logJsonMessage({
+                    userId: this.event.session.user.userId,
+                    query: 'Requesting restaurant'
+                });
+                this.emit(':delegate', this.event.request.intent);
+                return;
+            }
+
+            //  Good to go, get user's location
+            const awsClient = new AWSClient(
+                this.event.context.System.apiAccessToken,
+                this.event.context.System.device.deviceId,
+                this.event.context.System.apiEndpoint
+            );
+            return awsClient.getDeviceAddress().then((json) => {
+                json = {
+                    stateOrRegion: 'CA',
+                    city: 'Los Angeles',
+                    countryCode: 'US',
+                    postalCode: '90015',
+                    addressLine1: '1355 South Flower St'
+                };
+                if (json.type && json.type.toLowerCase() === 'forbidden') {
+                    //  Need to get permission to access location
                     logger.logJsonMessage({
                         userId: this.event.session.user.userId,
-                        query: 'Requesting restaurant'
+                        query: restaurant,
+                        location: 'Requesting permission'
                     });
-                    this.emit(':delegate', this.event.request.intent);
-                } else {
-                    //  Good to go, get user's location
-                    const awsClient = new AWSClient(
-                        this.event.context.System.apiAccessToken,
-                        this.event.context.System.device.deviceId,
-                        this.event.context.System.apiEndpoint
-                    );
-                    awsClient.getDeviceAddress()
-                        .then((response) => {
-                            response = {
-                                stateOrRegion: 'CA',
-                                city: 'Los Angeles',
-                                countryCode: 'US',
-                                postalCode: '90015',
-                                addressLine1: '1355 South Flower St'
-                            };
-                            if (response.type && response.type.toLowerCase() === 'forbidden') {
-                                //  Need to get permission to access location
-                                logger.logJsonMessage({
-                                    userId: this.event.session.user.userId,
-                                    query: restaurant,
-                                    location: 'Requesting permission'
-                                });
-                                this.emit(customHandlers.requestPermission);
-                            } else {
-                                return response;
-                            }
-                        })
-                        .then((address) => {
-                            const location = `${address.addressLine1}, ${address.city}, `
-                                + `${address.stateOrRegion || address.postalCode}`;
-
-                            logger.logJsonMessage({
-                                userId: this.event.session.user.userId,
-                                query: restaurant,
-                                location
-                            });
-
-                            //  Search and return results
-                            YelpClient.yelpSearch(restaurant, location)
-                                .then((data) => {
-                                    const business = data.businesses[0];
-                                    this.response.speak(
-                                        `Your top result is ${business.name} located at `
-                                        + `${buildLocationString(business.location)}. `
-                                        + `It is approximately ${metersToMiles(business.distance)} miles away.`
-                                    );
-                                    this.emit(':responseReady');
-                                })
-                                .catch(e => this.emit(
-                                    customHandlers.error,
-                                    `I had a problem searching for ${restaurant}`,
-                                    e
-                                ));
-                        });
+                    this.emit(customHandlers.requestPermission);
+                    return;
                 }
-            })
-            .catch((id) => this.emit(
-                customHandlers.error,
-                'I was unable to validate your application ID',
-                { code: '401', message: `Invalid application ID: ${id}` }
-            ));
+
+                const location = `${json.addressLine1}, ${json.city}, `
+                    + `${json.stateOrRegion || json.postalCode}`;
+                logger.logJsonMessage({
+                    userId: this.event.session.user.userId,
+                    query: restaurant,
+                    location
+                });
+
+                //  Search and return results
+                return YelpClient.yelpSearch(restaurant, location).then((data) => {
+                    //  Check for no results
+                    if (data.businesses.length === 0) {
+                        this.response.speak(`Sorry, I couldn't find any results for ${restaurant}.`);
+                        this.emit(':responseReady');
+                        return;
+                    }
+
+                    //  Build a card with top 5 results
+                    const topBusiness = data.businesses[0];
+                    const card = {
+                        type: 'Standard',
+                        title: 'Yelp Results',
+                        image: {
+                            smallImageUrl: topBusiness.image_url,
+                            largeImageUrl: topBusiness.image_url
+                        },
+                        text: data.businesses
+                            .slice(0, 5)
+                            .map((business, i) => buildBusinessCardText(business, i + 1))
+                            .join('\n')
+                    };
+
+                    //  Respond with card and dialogue
+                    this.handler.response = buildAlexaResponse({
+                        card,
+                        outputSpeech: {
+                            type: 'SSML',
+                            ssml: `<speak> I've displayed your top 5 results on a card in your Alexa `
+                                + `app. </speak>`
+                        }
+                    });
+                    this.emit(':responseReady');
+                }).catch(e => this.emit(
+                    customHandlers.error,
+                    `I had a problem searching for ${restaurant}.`,
+                    e
+                ));
+            });
+        }).catch((id) => this.emit(
+            customHandlers.error,
+            'I was unable to validate your application ID.',
+            { code: '401', message: `Invalid application ID: ${id}` }
+        ));
     },
 
     [customHandlers.requestPermission]: function () {
@@ -141,7 +163,7 @@ const handlers = {
     },
 
     [customHandlers.error]: function (message, e) {
-        logger.logError(`${e.code}: ${e.message}`);
+        logger.logError(`${e.code}: ${e.message || e.description}`);
         this.response.speak(`Sorry, something went wrong. ${message}`);
         this.emit(':responseReady');
     },
@@ -164,21 +186,23 @@ const handlers = {
 
 function buildAlexaResponse (settings) {
     const alexaResponse = {
-        body: {
-            version: settings.version || '1.0',
-            sessionAttributes: settings.sessionAttributes || {},
-            response: {
-                shouldEndSession: false
-            }
+        version: settings.version || '1.0',
+        sessionAttributes: settings.sessionAttributes || {},
+        response: {
+            shouldEndSession: true
         }
     };
 
     if (settings.card) {
-        alexaResponse.body.response.card = settings.card;
+        alexaResponse.response.card = settings.card;
     }
 
-    if (settings.shouldEndSession) {
-        alexaResponse.body.response.shouldEndSession = settings.shouldEndSession;
+    if (settings.shouldEndSession !== null && settings.shouldEndSession !== undefined) {
+        alexaResponse.response.shouldEndSession = settings.shouldEndSession;
+    }
+
+    if (settings.outputSpeech) {
+        alexaResponse.response.outputSpeech = settings.outputSpeech;
     }
 
     return alexaResponse;
