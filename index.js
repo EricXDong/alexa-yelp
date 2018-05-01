@@ -53,7 +53,9 @@ const customHandlers = {
 const handlers = {
     'LaunchRequest': function () {
         validateAppId(this.event).then(() => {
-            this.response.speak('Welcome to Yelp for Alexa. Just let me know what you would like to search for.');
+            this.response
+                .speak('Welcome to Yelp for Alexa. Just let me know what you would like to search for.')
+                .listen('You can say something like: Alexa, find McDonald\'s using Yelp Search.');
             this.emit(':responseReady');
         }).catch((id) => this.emit(
             customHandlers.error,
