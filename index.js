@@ -29,10 +29,6 @@ function buildLocationString (location) {
     return `${location.address1}, ${location.city}`;
 }
 
-function buildLocationSpeechString (location) {
-    return `${location.address1} in ${location.city}`;
-}
-
 function metersToMiles (meters) {
     const miles = meters * 0.000621371;
     return Math.round(miles * 10) / 10;
@@ -120,9 +116,9 @@ const handlers = {
                     }
 
                     const topResult = data.businesses[0];
-                    const topResultSpeech = `Your top result is ${topResult.name}, `
-                        + `about ${metersToMiles(topResult.distance)} miles away at `
-                        + `${buildLocationSpeechString(topResult.location)}.`;
+                    const topResultSpeech = `Your top result is ${topResult.name}, 
+                        about ${metersToMiles(topResult.distance)} miles away. It has ${topResult.rating} stars with 
+                        ${topResult.review_count} reviews.`;
 
                     //  Build a card with top 5 results
                     const card = {
