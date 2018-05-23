@@ -40,6 +40,10 @@ function buildBusinessCardText (business, listPosition) {
         + `${buildLocationString(business.location)}\n`;
 }
 
+function replaceAmpersandBcAlexaIsALittleShit (text) {
+    return text.replace(/&/g, 'and');
+}
+
 const customHandlers = {
     searchRestaurant: 'SearchRestaurant',
     requestPermission: 'RequestPermission',
@@ -116,7 +120,7 @@ const handlers = {
                     }
 
                     const topResult = data.businesses[0];
-                    const topResultSpeech = `Your top result is ${topResult.name}, 
+                    const topResultSpeech = `Your top result is ${replaceAmpersandBcAlexaIsALittleShit(topResult.name)},
                         about ${metersToMiles(topResult.distance)} miles away. It has ${topResult.rating} stars with 
                         ${topResult.review_count} reviews.`;
 
