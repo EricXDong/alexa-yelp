@@ -1,3 +1,5 @@
+/* eslint-disable */
+
 const fs = require('fs');
 const Alexa = require('alexa-sdk');
 
@@ -84,13 +86,13 @@ const handlers = {
                 this.event.context.System.apiEndpoint
             );
             return awsClient.getDeviceAddress().then((json) => {
-                // json = {
-                //     stateOrRegion: 'CA',
-                //     city: 'Los Angeles',
-                //     countryCode: 'US',
-                //     postalCode: '90015',
-                //     addressLine1: '1355 South Flower St'
-                // };
+                json = {
+                    stateOrRegion: 'CA',
+                    city: 'Los Angeles',
+                    countryCode: 'US',
+                    postalCode: '90015',
+                    addressLine1: '1355 South Flower St'
+                };
                 if (json.type && json.type.toLowerCase() === 'forbidden') {
                     //  Need to get permission to access location
                     logger.logJsonMessage({
@@ -140,16 +142,9 @@ const handlers = {
 
                     //  Respond with card and dialogue
                     this.handler.response = buildAlexaResponse({
-                        card,
                         outputSpeech: {
                             type: 'SSML',
-                            ssml: `<speak>
-                                <p> ${topResultSpeech}</p>
-                                <p>
-                                    I've displayed the rest of your results, including further details, on a card
-                                    in the Alexa App.
-                                </p>
-                            </speak>`
+                            ssml: `<speak><p> ${topResultSpeech}</p><p>Check out the Alexa App to see the rest of your results.</p></speak>`
                         }
                     });
                     this.emit(':responseReady');
