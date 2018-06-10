@@ -1,7 +1,5 @@
-/* eslint-disable */
-
 const fs = require('fs');
-const Alexa = require('alexa-sdk');
+const Alexa = require('ask-sdk-core');
 
 const YelpClient = require('./http/yelp-client');
 const AWSClient = require('./http/aws-client');
@@ -11,21 +9,14 @@ const logger = new Logger('Alexa-Yelp');
 
 const secrets = JSON.parse(fs.readFileSync('./secrets.json', 'utf8'));
 
-let validateAppId = (event) => new Promise((resolve, reject) => {
-    const id = event.session.application.applicationId;
+let validateAppId = (session) => new Promise((resolve, reject) => {
+    const id = session.application.applicationId;
     if (secrets.alexaAppId === id) {
         resolve(id);
     } else {
         reject(id);
     }
 });
-
-exports.handler = (event, context) => {
-    const alexa = Alexa.handler(event, context);
-    alexa.appId = secrets.alexaAppId;
-    alexa.registerHandlers(handlers);
-    alexa.execute();
-};
 
 function buildLocationString (location) {
     return `${location.address1}, ${location.city}`;
@@ -46,179 +37,208 @@ function replaceAmpersandBcAlexaIsALittleShit (text) {
     return text.replace(/&/g, 'and');
 }
 
-const customHandlers = {
+function isIntentRequest (handlerInput, intent) {
+    const request = handlerInput.requestEnvelope.request;
+    return request.type === 'IntentRequest' && request.intent.name === intent;
+}
+
+const handlerTypes = {
+    launch: 'LaunchRequest',
     searchRestaurant: 'SearchRestaurant',
-    requestPermission: 'RequestPermission',
-    error: 'Error'
+    help: 'AMAZON.HelpIntent',
+    cancel: 'AMAZON.CancelIntent',
+    stop: 'AMAZON.StopIntent'
 };
 
-const handlers = {
-    'LaunchRequest': function () {
-        validateAppId(this.event).then(() => {
-            this.response
-                .speak('Welcome to Yelp for Alexa. Just let me know what you would like to search for.')
-                .listen('You can say something like: Alexa, find McDonald\'s using Yelp Search.');
-            this.emit(':responseReady');
-        }).catch((id) => this.emit(
-            customHandlers.error,
-            'I was unable to validate your application ID.',
-            { code: '401', message: `Invalid application ID: ${id}` }
-        ));
+const launchRequestHandler = {
+    canHandle (handlerInput) {
+        return handlerInput.requestEnvelope.request.type === handlerTypes.launch;
     },
-
-    [customHandlers.searchRestaurant]: function () {
-        validateAppId(this.event).then(() => {
-            //  Make sure user says a restaurant
-            const restaurant = this.event.request.intent.slots.restaurant.value;
-            if (!restaurant) {
-                logger.logJsonMessage({
-                    userId: this.event.session.user.userId,
-                    query: 'Requesting restaurant'
-                });
-                this.emit(':delegate', this.event.request.intent);
-                return;
-            }
-
-            //  Good to go, get user's location
-            const awsClient = new AWSClient(
-                this.event.context.System.apiAccessToken,
-                this.event.context.System.device.deviceId,
-                this.event.context.System.apiEndpoint
-            );
-            return awsClient.getDeviceAddress().then((json) => {
-                json = {
-                    stateOrRegion: 'CA',
-                    city: 'Los Angeles',
-                    countryCode: 'US',
-                    postalCode: '90015',
-                    addressLine1: '1355 South Flower St'
+    handle (handlerInput) {
+        return validateAppId(handlerInput.requestEnvelope.session)
+            .then(() => handlerInput.responseBuilder
+                .speak('Welcome to Yelp for Alexa. Just let me know what you would like to search for.')
+                .withShouldEndSession(false)
+                .getResponse()
+            )
+            .catch((id) => {
+                throw {
+                    response: 'I was unable to validate your application.',
+                    code: '401',
+                    message: `Invalid application ID: ${id}`
                 };
-                if (json.type && json.type.toLowerCase() === 'forbidden') {
-                    //  Need to get permission to access location
+            });
+    }
+};
+
+const searchHandler = {
+    canHandle (handlerInput) {
+        return isIntentRequest(handlerInput, handlerTypes.searchRestaurant);
+    },
+    handle (handlerInput) {
+        return validateAppId(handlerInput.requestEnvelope.session)
+            .then(() => {
+                //  Make sure user says a restaurant
+                const request = handlerInput.requestEnvelope.request;
+                const session = handlerInput.requestEnvelope.session;
+
+                const restaurant = request.intent.slots.restaurant.value;
+                if (!restaurant) {
                     logger.logJsonMessage({
-                        userId: this.event.session.user.userId,
-                        query: restaurant,
-                        location: 'Requesting permission'
+                        userId: session.user.userId,
+                        query: 'Requesting restaurant'
                     });
-                    this.emit(customHandlers.requestPermission);
-                    return;
+                    return handlerInput.responseBuilder
+                        .addDelegateDirective(request.intent)
+                        .withShouldEndSession(false)
+                        .getResponse();
                 }
 
-                const userLocation = `${json.addressLine1}, ${json.city}, `
-                    + `${json.stateOrRegion || json.postalCode}`;
-                logger.logJsonMessage({
-                    userId: this.event.session.user.userId,
-                    query: restaurant,
-                    userLocation
-                });
-
-                //  Search and return results
-                return YelpClient.yelpSearch(restaurant, userLocation).then((data) => {
-                    //  Check for no results
-                    if (data.businesses.length === 0) {
-                        this.response.speak(`Sorry, I couldn't find any results for ${restaurant}.`);
-                        this.emit(':responseReady');
-                        return;
-                    }
-
-                    const topResult = data.businesses[0];
-                    const topResultSpeech = `Your top result is ${replaceAmpersandBcAlexaIsALittleShit(topResult.name)},
-                        about ${metersToMiles(topResult.distance)} miles away. It has ${topResult.rating} stars with 
-                        ${topResult.review_count} reviews.`;
-
-                    //  Build a card with top 5 results
-                    const card = {
-                        type: 'Standard',
-                        title: 'Yelp Results',
-                        image: {
-                            smallImageUrl: topResult.image_url,
-                            largeImageUrl: topResult.image_url
-                        },
-                        text: data.businesses
-                            .slice(0, 5)
-                            .map((business, i) => buildBusinessCardText(business, i + 1))
-                            .join('\n')
-                    };
-
-                    //  Respond with card and dialogue
-                    this.handler.response = buildAlexaResponse({
-                        outputSpeech: {
-                            type: 'SSML',
-                            ssml: `<speak><p> ${topResultSpeech}</p><p>Check out the Alexa App to see the rest of your results.</p></speak>`
+                //  Good to go, get user's location
+                const system = handlerInput.requestEnvelope.context.System;
+                const awsClient = new AWSClient(
+                    system.apiAccessToken,
+                    system.device.deviceId,
+                    system.apiEndpoint
+                );
+                return awsClient.getDeviceAddress()
+                    .then((json) => {
+                        // json = {
+                        //     stateOrRegion: 'CA',
+                        //     city: 'Los Angeles',
+                        //     countryCode: 'US',
+                        //     postalCode: '90015',
+                        //     addressLine1: '1355 South Flower St'
+                        // };
+                        if (json.type && json.type.toLowerCase() === 'forbidden') {
+                            //  Need to get permission to access location
+                            logger.logJsonMessage({
+                                userId: session.user.userId,
+                                query: restaurant,
+                                location: 'Requesting permission'
+                            });
+                            return handlerInput.responseBuilder
+                                .speak(`I need to know your location in order to find relevant results. You can give
+                                    me permission in the Alexa App.`)
+                                .withAskForPermissionsConsentCard(['read::alexa:device:all:address'])
+                                .getResponse();
                         }
+            
+                        const userLocation = `${json.addressLine1}, ${json.city}, `
+                            + `${json.stateOrRegion || json.postalCode}`;
+                        logger.logJsonMessage({
+                            userId: session.user.userId,
+                            query: restaurant,
+                            userLocation
+                        });
+                        return userLocation;
+                    })
+                    .then(userLocation => YelpClient.yelpSearch(restaurant, userLocation))
+                    .then((data) => {
+                        //  Check for no results
+                        if (data.businesses.length === 0) {
+                            return handlerInput.responseBuilder
+                                .speak(`Sorry, I couldn't find any results for ${restaurant}.`)
+                                .getResponse();
+                        }
+                        const topResult = data.businesses[0];
+                        const topResultSpeech = `Your top result is 
+                            ${replaceAmpersandBcAlexaIsALittleShit(topResult.name)}, 
+                            ${metersToMiles(topResult.distance)} miles away, ${topResult.rating} stars with 
+                            ${topResult.review_count} reviews.`;
+                        return handlerInput.responseBuilder
+                            .speak(`${topResultSpeech} Check out the Alexa App to see the rest of your results.`)
+                            .withStandardCard(
+                                'Yelp Results',
+                                data.businesses
+                                    .slice(0, 5)
+                                    .map((business, i) => buildBusinessCardText(business, i + 1))
+                                    .join('\n'),
+                                topResult.image_url,
+                                topResult.image_url
+                            )
+                            .getResponse();
+                    })
+                    .catch((e) => {
+                        throw {
+                            response: `I had a problem searching for ${restaurant}`,
+                            code: '500',
+                            message: `Error searching for ${restaurant}: ${e}`
+                        };
                     });
-                    this.emit(':responseReady');
-                }).catch(e => this.emit(
-                    customHandlers.error,
-                    `I had a problem searching for ${restaurant}.`,
-                    e
-                ));
+            })
+            .catch((id) => {
+                throw {
+                    response: 'I was unable to validate your application.',
+                    code: '401',
+                    message: `Invalid application ID: ${id}`
+                };
             });
-        }).catch((id) => this.emit(
-            customHandlers.error,
-            'I was unable to validate your application ID.',
-            { code: '401', message: `Invalid application ID: ${id}` }
-        ));
-    },
-
-    [customHandlers.requestPermission]: function () {
-        this.handler.response = buildAlexaResponse({
-            card: {
-                type: 'AskForPermissionsConsent',
-                permissions: [ 'read::alexa:device:all:address' ]
-            },
-            outputSpeech: {
-                type: 'SSML',
-                ssml: `<speak> I need to know your location in order to return relevant results. You can give `
-                    + `me permission in the Alexa App. </speak>`
-            },
-            shouldEndSession: false
-        });
-        this.emit(':responseReady');
-    },
-
-    [customHandlers.error]: function (message, e) {
-        logger.logError(`${e.code}: ${e.message || e.description}`);
-        this.response.speak(`Sorry, something went wrong. ${message}`);
-        this.emit(':responseReady');
-    },
-
-    'AMAZON.HelpIntent': function () {
-        this.response.speak('You can say something like: look up burger king using yelp');
-        this.emit(':responseReady');
-    },
-
-    'AMAZON.CancelIntent': function () {
-        this.response.speak('Goodbye');
-        this.emit(':responseReady');
-    },
-
-    'AMAZON.StopIntent': function () {
-        this.response.speak('Goodbye');
-        this.emit(':responseReady');
     }
 };
 
-function buildAlexaResponse (settings) {
-    const alexaResponse = {
-        version: settings.version || '1.0',
-        sessionAttributes: settings.sessionAttributes || {},
-        response: {
-            shouldEndSession: true
+const helpHandler = {
+    canHandle (handlerInput) {
+        return isIntentRequest(handlerInput, handlerTypes.help);
+    },
+    handle (handlerInput) {
+        return handlerInput.responseBuilder
+            .speak('You can say something like: look up Burger King.')
+            .withShouldEndSession(false)
+            .getResponse();
+    }
+};
+
+const cancelHandler = {
+    canHandle (handlerInput) {
+        return isIntentRequest(handlerInput, handlerTypes.cancel);
+    },
+    handle (handlerInput) {
+        return handlerInput.responseBuilder
+            .speak('Enjoy your food!')
+            .getResponse();
+    }
+};
+
+const stopHandler = {
+    canHandle (handlerInput) {
+        return isIntentRequest(handlerInput, handlerTypes.stop);
+    },
+    handle (handlerInput) {
+        return handlerInput.responseBuilder
+            .speak('Enjoy your food!')
+            .getResponse();
+    }
+};
+
+const errorHandler = {
+    canHandle () {
+        return true;
+    },
+    handle (handlerInput, e) {
+        let responseMsg = '';
+        if (typeof e === 'string') {
+            logger.logError(e);
+            responseMsg = `Sorry, something went wrong. ${e}`;
+        } else {
+            logger.logError(`${e.code}: ${e.message || e.description}`);
+            responseMsg = `Sorry, something went wrong. ${e.response || 'Please wait a little and try again.'}`;
         }
-    };
-
-    if (settings.card) {
-        alexaResponse.response.card = settings.card;
+        return handlerInput.responseBuilder
+            .speak(responseMsg)
+            .reprompt(responseMsg)
+            .getResponse();
     }
+};
 
-    if (settings.shouldEndSession !== null && settings.shouldEndSession !== undefined) {
-        alexaResponse.response.shouldEndSession = settings.shouldEndSession;
-    }
-
-    if (settings.outputSpeech) {
-        alexaResponse.response.outputSpeech = settings.outputSpeech;
-    }
-
-    return alexaResponse;
-}
+const skillBuilder = Alexa.SkillBuilders.custom();
+exports.handler = skillBuilder
+    .addRequestHandlers(
+        launchRequestHandler,
+        searchHandler,
+        helpHandler,
+        cancelHandler,
+        stopHandler
+    )
+    .addErrorHandlers(errorHandler)
+    .lambda();
