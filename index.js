@@ -131,40 +131,37 @@ const searchHandler = {
                             query: restaurant,
                             userLocation
                         });
-                        return userLocation;
-                    })
-                    .then(userLocation => YelpClient.yelpSearch(restaurant, userLocation))
-                    .then((data) => {
-                        //  Check for no results
-                        if (data.businesses.length === 0) {
+                        return YelpClient.yelpSearch(restaurant, userLocation).then((data) => {
+                            //  Check for no results
+                            if (data.businesses.length === 0) {
+                                return handlerInput.responseBuilder
+                                    .speak(`Sorry, I couldn't find any results for ${restaurant}.`)
+                                    .getResponse();
+                            }
+                            const topResult = data.businesses[0];
+                            const topResultSpeech = `Your top result is 
+                                ${replaceAmpersandBcAlexaIsALittleShit(topResult.name)}, 
+                                ${metersToMiles(topResult.distance)} miles away, ${topResult.rating} stars with 
+                                ${topResult.review_count} reviews.`;
                             return handlerInput.responseBuilder
-                                .speak(`Sorry, I couldn't find any results for ${restaurant}.`)
+                                .speak(`${topResultSpeech} Check out the Alexa App to see the rest of your results.`)
+                                .withStandardCard(
+                                    'Yelp Results',
+                                    data.businesses
+                                        .slice(0, 5)
+                                        .map((business, i) => buildBusinessCardText(business, i + 1))
+                                        .join('\n'),
+                                    topResult.image_url,
+                                    topResult.image_url
+                                )
                                 .getResponse();
-                        }
-                        const topResult = data.businesses[0];
-                        const topResultSpeech = `Your top result is 
-                            ${replaceAmpersandBcAlexaIsALittleShit(topResult.name)}, 
-                            ${metersToMiles(topResult.distance)} miles away, ${topResult.rating} stars with 
-                            ${topResult.review_count} reviews.`;
-                        return handlerInput.responseBuilder
-                            .speak(`${topResultSpeech} Check out the Alexa App to see the rest of your results.`)
-                            .withStandardCard(
-                                'Yelp Results',
-                                data.businesses
-                                    .slice(0, 5)
-                                    .map((business, i) => buildBusinessCardText(business, i + 1))
-                                    .join('\n'),
-                                topResult.image_url,
-                                topResult.image_url
-                            )
-                            .getResponse();
-                    })
-                    .catch((e) => {
-                        throw {
-                            response: `I had a problem searching for ${restaurant}`,
-                            code: '500',
-                            message: `Error searching for ${restaurant}: ${e}`
-                        };
+                        }).catch((e) => {
+                            throw {
+                                response: `I had a problem searching for ${restaurant}`,
+                                code: '500',
+                                message: `Error searching for ${restaurant}: ${e}`
+                            };
+                        });
                     });
             })
             .catch((id) => {
